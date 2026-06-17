@@ -4,28 +4,30 @@ import { Sparkles, Shield, User as UserIcon, LogIn, Compass } from 'lucide-react
 import { motion } from 'motion/react';
 
 export const LoginScreen: React.FC = () => {
-  const { signIn } = useApp();
+  const { signUp } = useApp();
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState<'client' | 'employee'>('client');
   const [password, setPassword] = useState('');
+  const [staffCode, setStaffCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) {
-      setError('Por favor, informe seu e-mail.');
+    if (!email || !password) {
+      setError('Por favor, informe seu e-mail e senha.');
       return;
     }
-    if (role === 'employee' && password !== '158575') {
+    if (role === 'employee' && staffCode !== '158575') {
       setError('Código de acesso de funcionário inválido. Acesso restrito ao staff do Ateliê.');
       return;
     }
     setError('');
     setLoading(true);
     try {
-      await signIn(email, role, name || undefined);
+      // Use signUp as it handles both new and existing users in our implementation for frictionless demo
+      await signUp(name || (role === 'employee' ? 'Alfaiate Raniere' : 'Cliente Especial'), email, role, password);
     } catch (err: any) {
       setError(err?.message || 'Erro ao realizar login.');
     } finally {
@@ -134,6 +136,20 @@ export const LoginScreen: React.FC = () => {
             />
           </div>
 
+          <div>
+            <label className="block text-[9px] uppercase tracking-[0.25em] text-[#D4AF37] font-semibold mb-2">
+              SENHA DE ACESSO
+            </label>
+            <input
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="w-full bg-black border border-white/10 focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] rounded-none py-3.5 px-4 text-white text-xs tracking-widest outline-none placeholder-white/20 transition-all font-sans uppercase"
+            />
+          </div>
+
           {role === 'employee' && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
@@ -147,8 +163,8 @@ export const LoginScreen: React.FC = () => {
               <input
                 type="password"
                 placeholder="DIGITE O CÓDIGO DE ACESSO DO STAFF"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                value={staffCode}
+                onChange={(e) => setStaffCode(e.target.value)}
                 required={role === 'employee'}
                 className="w-full bg-black border border-[#D4AF37]/40 focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] rounded-none py-3.5 px-4 text-white text-xs tracking-widest outline-none placeholder-[#D4AF37]/35 transition-all font-sans"
               />

@@ -1,0 +1,38 @@
+{
+  "collections": [
+    {
+      "name": "users",
+      "description": "Store user profiles and roles",
+      "fields": [
+        { "name": "uid", "type": "string", "description": "Firebase Auth UID" },
+        { "name": "email", "type": "string", "description": "User email" },
+        { "name": "name", "type": "string", "description": "User full name" },
+        { "name": "role", "type": "string", "description": "'client' or 'employee'" }
+      ]
+    },
+    {
+      "name": "products",
+      "description": "Store clothing catalog items",
+      "fields": [
+        { "name": "name", "type": "string" },
+        { "name": "description", "type": "string" },
+        { "name": "price", "type": "number" },
+        { "name": "stock", "type": "number" },
+        { "name": "imageUrl", "type": "string" },
+        { "name": "category", "type": "string" }
+      ]
+    },
+    {
+      "name": "orders",
+      "description": "Store customer orders",
+      "fields": [
+        { "name": "customerId", "type": "string" },
+        { "name": "customerName", "type": "string" },
+        { "name": "items", "type": "array" },
+        { "name": "totalPrice", "type": "number" },
+        { "name": "status", "type": "string" },
+        { "name": "createdAt", "type": "timestamp" }
+      ]
+    }
+  ]
+}

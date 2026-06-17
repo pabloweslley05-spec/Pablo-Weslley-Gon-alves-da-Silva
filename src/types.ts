@@ -1,3 +1,5 @@
+import { Timestamp } from 'firebase/firestore';
+
 export interface UserModel {
   uid: string;
   email: string;
@@ -30,5 +32,5 @@ export interface OrderModel {
   items: CartItemModel[];
   totalPrice: number;
   status: 'Pendente' | 'Preparando' | 'Enviado' | 'Entregue';
-  createdAt: string; // ISO String
+  createdAt: Timestamp | string; // Firebase Timestamp or ISO String for local fallback
 }

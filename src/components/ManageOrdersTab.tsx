@@ -15,8 +15,18 @@ export const ManageOrdersTab: React.FC = () => {
     }).format(price);
   };
 
-  const formatDate = (isoString: string) => {
-    return new Date(isoString).toLocaleDateString('pt-BR', {
+  const formatDate = (date: any) => {
+    if (!date) return '-';
+    let d: Date;
+    if (typeof date === 'string') {
+      d = new Date(date);
+    } else if (date && typeof date === 'object' && date.toDate) {
+      d = date.toDate();
+    } else {
+      d = new Date(date);
+    }
+    
+    return d.toLocaleDateString('pt-BR', {
       day: '2-digit',
       month: 'long',
       hour: '2-digit',

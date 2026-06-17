@@ -1,5 +1,27 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserModel, ProductModel, CartItemModel, OrderModel } from '../types';
+import { 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut as firebaseSignOut 
+} from 'firebase/auth';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  where, 
+  orderBy, 
+  Timestamp,
+  serverTimestamp 
+} from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 
 interface AppContextType {
@@ -41,117 +63,88 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [orders, setOrders] = useState<OrderModel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load from localStorage on init
+  // Auth Listener
   useEffect(() => {
-    try {
-      const storedUser = localStorage.getItem('ar_current_user');
-      if (storedUser) {
-        setCurrentUser(JSON.parse(storedUser));
-      }
-
-      const storedUserList = localStorage.getItem('ar_users_list');
-      if (storedUserList) {
-        setUsersList(JSON.parse(storedUserList));
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        // Fetch user profile from Firestore
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          setCurrentUser(userDoc.data() as UserModel);
+        } else {
+          // This should handled in signUp, but fallback
+          setCurrentUser(null);
+        }
       } else {
-        // Initialize default users (one client, one employee) for easy testing
-        const defaultUsers: UserModel[] = [
-          { uid: 'u-1', email: 'cliente@raniere.com', name: 'Adriana Silva', role: 'client' },
-          { uid: 'u-2', email: 'ateliere@raniere.com', name: 'Raniere Altieri', role: 'employee' }
-        ];
-        localStorage.setItem('ar_users_list', JSON.stringify(defaultUsers));
-        setUsersList(defaultUsers);
+        setCurrentUser(null);
       }
-
-      const storedProducts = localStorage.getItem('ar_products_list');
-      if (storedProducts) {
-        setProducts(JSON.parse(storedProducts));
-      } else {
-        localStorage.setItem('ar_products_list', JSON.stringify(INITIAL_PRODUCTS));
-        setProducts(INITIAL_PRODUCTS);
-      }
-
-      const storedOrders = localStorage.getItem('ar_orders_list');
-      if (storedOrders) {
-        setOrders(JSON.parse(storedOrders));
-      } else {
-        // Prepare some mock previous orders for luxurious look
-        const defaultOrders: OrderModel[] = [
-          {
-            id: 'ORD-9842',
-            customerId: 'u-1',
-            customerName: 'Adriana Silva',
-            items: [
-              {
-                productId: 'prod-1',
-                name: 'Vestido Ébano Dourado',
-                price: 4500,
-                imageUrl: 'https://images.unsplash.com/photo-1595777457583-95e059d581b8?auto=format&fit=crop&w=600&q=80',
-                quantity: 1
-              }
-            ],
-            totalPrice: 4500,
-            status: 'Entregue',
-            createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
-          },
-          {
-            id: 'ORD-1049',
-            customerId: 'u-1',
-            customerName: 'Adriana Silva',
-            items: [
-              {
-                productId: 'prod-3',
-                name: 'Scarpin Aureum 85',
-                price: 2900,
-                imageUrl: 'https://images.unsplash.com/photo-1543163521-1bf539c55dd2?auto=format&fit=crop&w=600&q=80',
-                quantity: 1
-              },
-              {
-                productId: 'prod-5',
-                name: 'Clutch Escultórica Raniere',
-                price: 3400,
-                imageUrl: 'https://images.unsplash.com/photo-1584917865442-de89df76afd3?auto=format&fit=crop&w=600&q=80',
-                quantity: 1
-              }
-            ],
-            totalPrice: 6300,
-            status: 'Preparando',
-            createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
-          }
-        ];
-        localStorage.setItem('ar_orders_list', JSON.stringify(defaultOrders));
-        setOrders(defaultOrders);
-      }
-
-      const storedCart = localStorage.getItem('ar_cart_list');
-      if (storedCart) {
-        setCart(JSON.parse(storedCart));
-      }
-    } catch (e) {
-      console.error("Local storage loading error", e);
-    } finally {
       setIsLoading(false);
-    }
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  // Save changes helper
-  const saveUserData = (user: UserModel | null) => {
-    setCurrentUser(user);
-    if (user) {
-      localStorage.setItem('ar_current_user', JSON.stringify(user));
-    } else {
-      localStorage.removeItem('ar_current_user');
+  // Products Listener
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'products'), (snapshot) => {
+      const prods: ProductModel[] = [];
+      snapshot.forEach((doc) => {
+        prods.push({ id: doc.id, ...doc.data() } as ProductModel);
+      });
+      
+      if (prods.length === 0 && !isLoading) {
+        // Seed initial products if collection is empty
+        // In a real app this might be a separate setup script
+        INITIAL_PRODUCTS.forEach(async (p) => {
+          const { id, ...data } = p;
+          await setDoc(doc(db, 'products', id), data);
+        });
+      }
+      setProducts(prods);
+    });
+
+    return () => unsubscribe();
+  }, [isLoading]);
+
+  // Orders Listener
+  useEffect(() => {
+    if (!currentUser) {
+      setOrders([]);
+      return;
     }
-  };
 
-  const saveProductsList = (updatedProducts: ProductModel[]) => {
-    setProducts(updatedProducts);
-    localStorage.setItem('ar_products_list', JSON.stringify(updatedProducts));
-  };
+    let q;
+    if (currentUser.role === 'employee') {
+      // Employees see everything
+      q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+    } else {
+      // Clients see only their orders
+      q = query(
+        collection(db, 'orders'), 
+        where('customerId', '==', currentUser.uid),
+        orderBy('createdAt', 'desc')
+      );
+    }
 
-  const saveOrdersList = (updatedOrders: OrderModel[]) => {
-    setOrders(updatedOrders);
-    localStorage.setItem('ar_orders_list', JSON.stringify(updatedOrders));
-  };
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const ords: OrderModel[] = [];
+      snapshot.forEach((doc) => {
+        ords.push({ id: doc.id, ...doc.data() } as OrderModel);
+      });
+      setOrders(ords);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // Cart persistence in localStorage is still okay as it's transient
+  // but let's clear it on signout.
+  useEffect(() => {
+    const storedCart = localStorage.getItem('ar_cart_list');
+    if (storedCart) {
+      setCart(JSON.parse(storedCart));
+    }
+  }, []);
 
   const saveCartList = (updatedCart: CartItemModel[]) => {
     setCart(updatedCart);
@@ -162,92 +155,71 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const signIn = async (
     email: string,
     role: 'client' | 'employee',
-    name?: string
+    password?: string
   ): Promise<UserModel> => {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        const normalizedEmail = email.trim().toLowerCase();
-        // Look up user
-        const existingUser = usersList.find(u => u.email.toLowerCase() === normalizedEmail);
-        
-        if (existingUser) {
-          // If role is different, update or respect custom role
-          const updatedUser = { ...existingUser, role }; 
-          const newList = usersList.map(u => u.uid === existingUser.uid ? updatedUser : u);
-          setUsersList(newList);
-          localStorage.setItem('ar_users_list', JSON.stringify(newList));
-          saveUserData(updatedUser);
-          resolve(updatedUser);
-        } else {
-          // If not exists, auto-register for ease of use in demo!
-          const newUser: UserModel = {
-            uid: 'u_' + Date.now(),
-            email: normalizedEmail,
-            name: name || (role === 'employee' ? 'Alfaiate Raniere' : 'Cliente Especial'),
-            role: role
-          };
-          const newList = [...usersList, newUser];
-          setUsersList(newList);
-          localStorage.setItem('ar_users_list', JSON.stringify(newList));
-          saveUserData(newUser);
-          resolve(newUser);
-        }
-      }, 500);
-    });
+    const userCredential = await signInWithEmailAndPassword(auth, email, password || 'password123'); 
+    const userDoc = await getDoc(doc(db, 'users', userCredential.user.uid));
+    
+    if (userDoc.exists()) {
+      const userData = userDoc.data() as UserModel;
+      return userData;
+    } else {
+      throw new Error("Usuário não encontrado no banco de dados.");
+    }
   };
 
   const signUp = async (
     name: string,
     email: string,
-    role: 'client' | 'employee'
+    role: 'client' | 'employee',
+    password?: string
   ): Promise<UserModel> => {
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        const normalizedEmail = email.trim().toLowerCase();
-        const newUser: UserModel = {
-          uid: 'u_' + Date.now(),
-          email: normalizedEmail,
-          name: name.trim(),
-          role: role
-        };
-        const newList = [...usersList.filter(u => u.email.toLowerCase() !== normalizedEmail), newUser];
-        setUsersList(newList);
-        localStorage.setItem('ar_users_list', JSON.stringify(newList));
-        saveUserData(newUser);
-        resolve(newUser);
-      }, 500);
-    });
+    try {
+      const psw = password || 'password123';
+      let userCredential;
+      
+      try {
+        userCredential = await createUserWithEmailAndPassword(auth, email, psw);
+      } catch (e: any) {
+        if (e.code === 'auth/email-already-in-use') {
+          return signIn(email, role, psw);
+        }
+        throw e;
+      }
+      
+      const newUser: UserModel = {
+        uid: userCredential.user.uid,
+        email: email.toLowerCase(),
+        name: name.trim(),
+        role: role
+      };
+      
+      await setDoc(doc(db, 'users', newUser.uid), newUser);
+      return newUser;
+    } catch (e: any) {
+      throw e;
+    }
   };
 
-  const signOut = () => {
-    saveUserData(null);
+  const signOut = async () => {
+    await firebaseSignOut(auth);
     saveCartList([]);
   };
 
   // Product Functions
-  const addProduct = (newProdData: Omit<ProductModel, 'id'>) => {
-    const newProduct: ProductModel = {
-      ...newProdData,
-      id: 'prod-' + Date.now()
-    };
-    saveProductsList([...products, newProduct]);
+  const addProduct = async (newProdData: Omit<ProductModel, 'id'>) => {
+    await addDoc(collection(db, 'products'), newProdData);
   };
 
-  const updateProduct = (id: string, updatedFields: Partial<ProductModel>) => {
-    const updated = products.map(prod => {
-      if (prod.id === id) {
-        return { ...prod, ...updatedFields };
-      }
-      return prod;
-    });
-    saveProductsList(updated);
+  const updateProduct = async (id: string, updatedFields: Partial<ProductModel>) => {
+    await updateDoc(doc(db, 'products', id), updatedFields);
   };
 
-  const deleteProduct = (id: string) => {
-    saveProductsList(products.filter(prod => prod.id !== id));
+  const deleteProduct = async (id: string) => {
+    await deleteDoc(doc(db, 'products', id));
   };
 
-  // Cart Functions
+  // Cart Functions (Client Side only until checkout)
   const addItemToCart = (product: ProductModel) => {
     const existingIndex = cart.findIndex(item => item.productId === product.id);
     if (existingIndex > -1) {
@@ -295,60 +267,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Order Functions
   const placeOrder = async (): Promise<OrderModel> => {
-    return new Promise((resolve, reject) => {
-      if (!currentUser) {
-        reject(new Error("É necessário fazer login para realizar um pedido."));
-        return;
+    if (!currentUser) {
+      throw new Error("É necessário fazer login para realizar um pedido.");
+    }
+    if (cart.length === 0) {
+      throw new Error("O carrinho está vazio.");
+    }
+
+    const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+    const orderData = {
+      customerId: currentUser.uid,
+      customerName: currentUser.name,
+      items: [...cart],
+      totalPrice: total,
+      status: 'Pendente',
+      createdAt: serverTimestamp()
+    };
+
+    const docRef = await addDoc(collection(db, 'orders'), orderData);
+    
+    // Update products stock
+    for (const item of cart) {
+      const prod = products.find(p => p.id === item.productId);
+      if (prod) {
+        await updateDoc(doc(db, 'products', prod.id), {
+          stock: Math.max(0, prod.stock - item.quantity)
+        });
       }
-      if (cart.length === 0) {
-        reject(new Error("O carrinho está vazio."));
-        return;
-      }
+    }
 
-      // Calculate total amount
-      const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    clearCart();
 
-      // Decrement stock in state
-      const updatedProducts = products.map(prod => {
-        const cartItemForProduct = cart.find(item => item.productId === prod.id);
-        if (cartItemForProduct) {
-          const newStock = Math.max(0, prod.stock - cartItemForProduct.quantity);
-          return { ...prod, stock: newStock };
-        }
-        return prod;
-      });
-
-      // Save updated products list
-      saveProductsList(updatedProducts);
-
-      const newOrder: OrderModel = {
-        id: 'ORD-' + Math.floor(1000 + Math.random() * 9000),
-        customerId: currentUser.uid,
-        customerName: currentUser.name,
-        items: [...cart],
-        totalPrice: total,
-        status: 'Pendente',
-        createdAt: new Date().toISOString()
-      };
-
-      const updatedOrders = [newOrder, ...orders];
-      saveOrdersList(updatedOrders);
-      clearCart();
-      resolve(newOrder);
-    });
+    return {
+      id: docRef.id,
+      ...orderData,
+      createdAt: Timestamp.now() // For immediate optimistic UI response though listeners will handle it
+    } as OrderModel;
   };
 
-  const updateOrderStatus = (
+  const updateOrderStatus = async (
     orderId: string,
     status: 'Pendente' | 'Preparando' | 'Enviado' | 'Entregue'
   ) => {
-    const updated = orders.map(ord => {
-      if (ord.id === orderId) {
-        return { ...ord, status };
-      }
-      return ord;
-    });
-    saveOrdersList(updated);
+    await updateDoc(doc(db, 'orders', orderId), { status });
   };
 
   return (
