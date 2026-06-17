@@ -1,0 +1,6 @@
+{
+  "name": "Atelie Raniere",
+  "description": "Atelie Raniere - Alta Costura e Moda Premium. Loja de Roupas de Luxo com gerenciamento completo de catalogo, carrinho, pedidos e estoque.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
